@@ -13,16 +13,14 @@ import (
 )
 
 func wakandaHandler(w *response.Writer, req *request.Request) {
-	w.WriteStatusLine(200)
 	res := []byte("wakanda to you too")
-	w.WriteHeaders(response.GetDefaultHeaders(len(res)))
-	w.WriteBody(res)
+	w.Respond(200, res)
 }
 
 func wakandaPOSTHandler(w *response.Writer, req *request.Request) {
 	fmt.Println(string(req.Body))
 	body := []byte("its working!!!!")
-	w.Respond(200, response.GetDefaultHeaders(len(body)), body)
+	w.Respond(200, body)
 }
 
 func wakandaIDHandler(w *response.Writer, req *request.Request) {
@@ -45,7 +43,7 @@ func wakandaIDHandler(w *response.Writer, req *request.Request) {
 	}
 
 	body := []byte(result.String())
-	w.Respond(200, response.GetDefaultHeaders(len(body)), body)
+	w.Respond(200, body)
 }
 
 func queryHandler(w *response.Writer, req *request.Request) {
@@ -62,7 +60,7 @@ func queryHandler(w *response.Writer, req *request.Request) {
 	}
 
 	body := []byte(queryStr)
-	w.Respond(200, response.GetDefaultHeaders(len(body)), body)
+	w.Respond(200, body)
 }
 
 func streamHandler(w *response.Writer, req *request.Request) {
@@ -76,20 +74,19 @@ func streamHandler(w *response.Writer, req *request.Request) {
 	if err != nil {
 		body = respond500()
 		status = response.StatusInternalServerError
-		w.Respond(status, h, body)
+		w.Respond(status, body)
 
 		return
 	}
-	h.Replace("content-type", "text/plain")
+	w.ReplaceHeader("content-type", "text/plain")
 	stream.Streamer(w, h, res.Body)
 }
 
 func videoHandler(w *response.Writer, req *request.Request) {
 	f, err := os.Open("./assets/vim.mp4")
 	if err != nil {
-		h := headers.NewHeaders()
 		body := respond500()
-		w.Respond(response.StatusInternalServerError, h, body)
+		w.Respond(response.StatusInternalServerError, body)
 	} else {
 		defer f.Close()
 		h := headers.NewHeaders()

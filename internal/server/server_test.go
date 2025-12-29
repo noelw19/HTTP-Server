@@ -79,7 +79,7 @@ func TestKeepAlive(t *testing.T) {
 	// Add a simple test handler
 	srv.AddHandler("/test", func(w *response.Writer, req *request.Request) {
 		body := []byte("test response")
-		w.Respond(200, response.GetDefaultHeaders(len(body)), body)
+		w.Respond(200, body)
 	}).GET()
 
 	// Start the server
@@ -185,7 +185,7 @@ func TestKeepAliveConnectionClose(t *testing.T) {
 
 	srv.AddHandler("/test", func(w *response.Writer, req *request.Request) {
 		body := []byte("test")
-		w.Respond(200, response.GetDefaultHeaders(len(body)), body)
+		w.Respond(200, body)
 	}).GET()
 
 	err := srv.Listen()
@@ -261,7 +261,7 @@ func TestKeepAliveMultipleRequests(t *testing.T) {
 	srv.AddHandler("/test", func(w *response.Writer, req *request.Request) {
 		requestCount++
 		body := []byte("test response")
-		w.Respond(200, response.GetDefaultHeaders(len(body)), body)
+		w.Respond(200, body)
 	}).GET()
 
 	err := srv.Listen()

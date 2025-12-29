@@ -1,6 +1,6 @@
 # HTTP Server from Scratch
 
-A simple HTTP/1.1 server implementation built from scratch in Go. This server implements the HTTP/1.1 protocol (RFC 7230-7237) with support for routing, dynamic path parameters, query strings, and streaming responses.
+A simple HTTP/1.1 server implementation built from scratch in Go. This server implements the HTTP/1.1 protocol (RFC 7230-7237) with support for routing, dynamic path parameters, query strings, streaming responses, and HTTP keep-alive connections.
 
 ## Simple Implementation
 
@@ -309,7 +309,7 @@ You can also use integer literals: `w.Respond(201, headers, body)`
 
 Creates default HTTP headers with:
 - `Content-Length`: Set to `contentLen`
-- `Connection`: `close`
+- `Connection`: `keep-alive` (enables persistent connections)
 - `Content-Type`: `text/plain`
 
 **Example**:
@@ -339,6 +339,64 @@ h := headers.NewHeaders()
 h.Set("content-type", "application/json")
 h.Set("x-custom-header", "value")
 ```
+
+---
+
+## Keep-Alive Connections
+
+The server supports HTTP/1.1 keep-alive connections, allowing multiple requests to be processed on the same TCP connection. This improves performance by reducing connection overhead.
+
+### How It Works
+
+1. **Default Behavior**: By default, the server sets `Connection: keep-alive` in response headers (via `GetDefaultHeaders()`)
+2. **Connection Management**: The server maintains connections open and processes multiple requests sequentially on the same connection
+3. **Connection Closing**: Connections are closed when:
+   - The client sends `Connection: close` header
+   - The connection times out (60 seconds of inactivity)
+   - An error occurs during request processing
+   - The client closes the connection
+
+### Connection Header Behavior
+
+- **Client sends `Connection: keep-alive`** (or omits it in HTTP/1.1): Server keeps the connection open for subsequent requests
+- **Client sends `Connection: close`**: Server closes the connection after sending the response
+
+### Timeout Settings
+
+- **Read Timeout**: 60 seconds per request - if no data is received within this time, the connection is closed
+- **TCP Keep-Alive**: 30 seconds - OS-level keep-alive probes to detect dead connections
+
+### Example: Using Keep-Alive
+
+The server automatically handles keep-alive connections. Clients can send multiple requests on the same connection:
+
+```go
+// Server automatically handles keep-alive
+func handler(w *response.Writer, req *request.Request) {
+    body := []byte("Response")
+    // GetDefaultHeaders() includes Connection: keep-alive
+    headers := response.GetDefaultHeaders(len(body))
+    w.Respond(200, headers, body)
+}
+
+// To force connection close, set Connection: close
+func handlerWithClose(w *response.Writer, req *request.Request) {
+    body := []byte("Response")
+    headers := response.GetDefaultHeaders(len(body))
+    headers.Replace("Connection", "close")  // Force connection close
+    w.Respond(200, headers, body)
+}
+```
+
+### Testing Keep-Alive
+
+A test client is provided in `test_keepalive_client.go` that demonstrates keep-alive functionality by sending multiple requests on the same connection.
+
+**Benefits of Keep-Alive:**
+- Reduced connection overhead
+- Lower latency for subsequent requests
+- Better resource utilization
+- Improved performance for clients making multiple requests
 
 ---
 
@@ -767,9 +825,10 @@ func main() {
 Here are some suggestions to enhance this HTTP server package:
 
 ### 1. **Connection Keep-Alive Support**
-   - HTTP/1.1 supports persistent connections via the `Connection: keep-alive` header
-   - Currently, the server closes connections after each request
-   - Implement connection pooling and reuse for better performance
+   - ✅ **Implemented**: HTTP/1.1 persistent connections via the `Connection: keep-alive` header
+   - The server now supports connection reuse for multiple requests on the same TCP connection
+   - Connections remain open until the client sends `Connection: close` or the connection times out (60 seconds)
+   - TCP keep-alive is enabled with a 30-second period to detect dead connections
 
 ### 2. **Middleware Enhancements**
    - ✅ Basic middleware support is implemented

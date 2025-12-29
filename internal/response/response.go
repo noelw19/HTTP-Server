@@ -20,13 +20,14 @@ const (
 type Writer struct {
 	Writer      io.Writer
 	writerState writerState
-	Headers     headers.Headers
+	headers     headers.Headers
 }
 
 func NewResponseWriter(w io.Writer) *Writer {
 	return &Writer{
 		Writer:      w,
 		writerState: writerStateNotStarted,
+		headers:     headers.NewHeaders(),
 	}
 }
 
@@ -37,19 +38,28 @@ func (w *Writer) isCorrectState(expected writerState) error {
 	return fmt.Errorf("you have executed the writers in the wrong order: current: %d, expected: %d", w.writerState, expected)
 }
 
-func (w *Writer) Respond(status StatusCode, h headers.Headers, body []byte) {
+func (w *Writer) SetDefaultHeaders(keepalive bool) {
+	w.headers = GetDefaultHeaders(0)
+	if keepalive {
+		w.ReplaceHeader("Connection", "keep-alive")
+		return
+	}
+}
+
+func (w *Writer) Respond(status StatusCode, body []byte) {
 	err := w.WriteStatusLine(status)
 	if err != nil {
 		fmt.Println(err, status, string(body))
 		return
 	}
+	h := w.headers
 	h.Replace("content-length", fmt.Sprintf("%d", len(body)))
 
 	if isHTML(body) {
 		h.Replace("content-type", "text/html")
 	}
 
-	err = w.WriteHeaders(h)
+	err = w.WriteHeaders()
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -80,13 +90,14 @@ func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
 	return err
 }
 
-func (w *Writer) WriteHeaders(headers headers.Headers) error {
+func (w *Writer) WriteHeaders() error {
 	err := w.isCorrectState(writerStateStatusLine)
 	if err != nil {
 		return err
 	}
 
 	hasBody := false
+	headers := w.headers
 
 	if _, ok := headers.HasContentLength(); ok {
 		hasBody = true
@@ -135,14 +146,22 @@ func GetDefaultHeaders(contentLen int) headers.Headers {
 	h := headers.NewHeaders()
 
 	h.Set("content-length", fmt.Sprintf("%d", contentLen))
-	h.Set("Connection", "keep-alive")
+	h.Set("Connection", "close")
 	h.Set("Content-Type", "text/plain")
 
 	return h
 }
 
-func (w *Writer) StoreHeaders(h headers.Headers) {
-	w.Headers = h
+func (w *Writer) AddHeader(key, value string) {
+	w.headers.Set(key, value)
+}
+
+func (w *Writer) DeleteHeader(key string) {
+	w.headers.Delete(key)
+}
+
+func (w *Writer) ReplaceHeader(key, value string) {
+	w.headers.Replace(key, value)
 }
 
 func (w *Writer) WriteChunkedBody(p []byte) (int, error) {

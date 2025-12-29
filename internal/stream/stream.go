@@ -20,10 +20,11 @@ func bytesToStr(bs []byte) string {
 
 func Streamer(w *response.Writer, h headers.Headers, reader io.ReadCloser) {
 	w.WriteStatusLine(response.StatusOK)
-	h.Delete("content-length")
-	h.Set("transfer-encoding", "chunked")
-	h.Set("trailer", "X-Content-SHA256, X-Content-Length")
-	w.WriteHeaders(h)
+
+	w.DeleteHeader("content-length")
+	w.AddHeader("transfer-encoding", "chunked")
+	w.AddHeader("trailer", "X-Content-SHA256, X-Content-Length")
+	w.WriteHeaders()
 
 	rawBody := []byte{}
 

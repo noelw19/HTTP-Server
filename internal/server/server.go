@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/noelw19/tcptohttp/internal/handler"
-	"github.com/noelw19/tcptohttp/internal/headers"
 	"github.com/noelw19/tcptohttp/internal/middleware.go"
 	"github.com/noelw19/tcptohttp/internal/request"
 	"github.com/noelw19/tcptohttp/internal/response"
@@ -151,9 +150,10 @@ func (s *Server) handle(conn net.Conn) {
 
 		// Check if client wants to close connection
 		connectionHeader := strings.ToLower(req.Headers.Get("connection"))
-		shouldClose := connectionHeader == "close"
+		keepalive := connectionHeader == "keep-alive"
 
 		writer := response.NewResponseWriter(conn)
+		writer.SetDefaultHeaders(keepalive)
 
 		// Use just the path part (without query string) for route matching
 		path := req.Path()
@@ -165,14 +165,14 @@ func (s *Server) handle(conn net.Conn) {
 		} else {
 			if err.Error() == "Method not allowed" {
 				body := respond405()
-				writer.Respond(405, response.GetDefaultHeaders(len(body)), body)
+				writer.Respond(405, body)
 			} else {
 				s.notFound(writer, req)
 			}
 		}
 
 		// If client wants to close, exit loop
-		if shouldClose {
+		if !keepalive {
 			break
 		}
 
@@ -224,8 +224,8 @@ func respond405() []byte {
 }
 
 func defaultNotFoundHandler(w *response.Writer, req *request.Request) {
-	h := headers.NewHeaders()
-	w.Respond(404, h, respond404())
+	w.SetDefaultHeaders(false)
+	w.Respond(404, respond404())
 }
 
 func respond404() []byte {
