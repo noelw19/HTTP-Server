@@ -20,6 +20,7 @@ const (
 type Writer struct {
 	Writer      io.Writer
 	writerState writerState
+	Headers     headers.Headers
 }
 
 func NewResponseWriter(w io.Writer) *Writer {
@@ -97,7 +98,7 @@ func (w *Writer) WriteHeaders(headers headers.Headers) error {
 
 	for key := range headers {
 
-		headerLine := fmt.Sprintf("%s:%s\r\n", key, headers.Get(key))
+		headerLine := fmt.Sprintf("%s: %s\r\n", key, headers.Get(key))
 		_, err := w.Writer.Write([]byte(headerLine))
 		if err != nil {
 			return err
@@ -134,10 +135,14 @@ func GetDefaultHeaders(contentLen int) headers.Headers {
 	h := headers.NewHeaders()
 
 	h.Set("content-length", fmt.Sprintf("%d", contentLen))
-	h.Set("Connection", "close")
+	h.Set("Connection", "keep-alive")
 	h.Set("Content-Type", "text/plain")
 
 	return h
+}
+
+func (w *Writer) StoreHeaders(h headers.Headers) {
+	w.Headers = h
 }
 
 func (w *Writer) WriteChunkedBody(p []byte) (int, error) {

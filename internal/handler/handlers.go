@@ -10,16 +10,17 @@ type Handlers map[string]*Handler
 
 // MatchResult contains the matched handler and extracted path variables
 type MatchResult struct {
-	Handler HandlerFunc
-	Vars    Vars
+	Handler     Handler
+	HandlerFunc HandlerFunc
+	Vars        Vars
 }
 
-func (h Handlers) Match(route string, method AllowedMethod) (HandlerFunc, error) {
+func (h Handlers) Match(route string, method AllowedMethod) (*Handler, error) {
 	result, err := h.MatchWithVars(route, method)
 	if err != nil {
 		return nil, err
 	}
-	return result.Handler, nil
+	return &result.Handler, nil
 }
 
 func (h Handlers) MatchWithVars(route string, method AllowedMethod) (*MatchResult, error) {
@@ -33,11 +34,11 @@ func (h Handlers) MatchWithVars(route string, method AllowedMethod) (*MatchResul
 		for iter := range keys {
 			if iter == method {
 				hf := handler.MethodFuncs[method]
-				return &MatchResult{Handler: *hf, Vars: make(Vars)}, nil
+				return &MatchResult{HandlerFunc: *hf, Handler: *handler, Vars: make(Vars)}, nil
 			}
 		}
 		if handler.HandleFunc != nil {
-			return &MatchResult{Handler: *handler.HandleFunc, Vars: make(Vars)}, nil
+			return &MatchResult{HandlerFunc: *handler.HandleFunc, Handler: *handler, Vars: make(Vars)}, nil
 		}
 	}
 
@@ -53,11 +54,11 @@ func (h Handlers) MatchWithVars(route string, method AllowedMethod) (*MatchResul
 			for iter := range keys {
 				if iter == method {
 					hf := handler.MethodFuncs[method]
-					return &MatchResult{Handler: *hf, Vars: vars}, nil
+					return &MatchResult{HandlerFunc: *hf, Handler: *handler, Vars: vars}, nil
 				}
 			}
 			if handler.HandleFunc != nil {
-				return &MatchResult{Handler: *handler.HandleFunc, Vars: vars}, nil
+				return &MatchResult{HandlerFunc: *handler.HandleFunc, Handler: *handler, Vars: vars}, nil
 			}
 		}
 	}

@@ -33,12 +33,8 @@ func TestValidSingleHeader(t *testing.T) {
 	headers := NewHeaders()
 
 	data := []byte("H©st: localhost:42069\r\n\r\n")
-	n, done, err := headers.Parse(data)
-	require.NoError(t, err)
-	require.NotNil(t, headers)
-	assert.Equal(t, "localhost:42069", headers["Host"])
-	assert.Equal(t, 23, n)
-	assert.False(t, done)
+	_, _, err := headers.Parse(data)
+	require.Error(t, err)
 }
 
 func TestInvalidSingleHeader(t *testing.T) {

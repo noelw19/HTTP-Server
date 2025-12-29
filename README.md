@@ -73,9 +73,11 @@ func notFound(w *response.Writer, req *request.Request) {
 
 1. **Create a server**: `server.Serve(port)` - Returns a `*Server` instance with a default 404 handler
 2. **Optionally override 404 handler**: `server.OverrideNotFoundHandler(handler)`
-3. **Add routes**: `server.AddHandler(path, handler).GET()`
-4. **Start listening**: `server.Listen()`
-5. **Handle requests**: Write responses using `response.Writer`
+3. **Add global middleware** (optional): `server.Use(middleware)` - Applies to all routes
+4. **Add routes**: `server.AddHandler(path, handler).GET()`
+5. **Add route-specific middleware** (optional): `server.AddHandler(path, handler).Use(middleware).GET()`
+6. **Start listening**: `server.Listen()`
+7. **Handle requests**: Write responses using `response.Writer`
 
 ---
 
@@ -137,6 +139,18 @@ The main server struct.
   - **Parameters**:
     - `notFoundHandler`: Handler function for 404 responses
 
+- **`Use(m middleware.MiddlewareHandler)`**
+  
+  Registers global middleware that applies to all routes. Middleware executes in the order they are added.
+  
+  ```go
+  server.Use(loggingMiddleware)
+  server.Use(authMiddleware)
+  ```
+  
+  - **Parameters**:
+    - `m`: Middleware function that wraps the next handler
+
 - **`Show()`**
   
   Debug method that prints all registered routes.
@@ -172,11 +186,18 @@ Handler struct returned by `AddHandler()` for method chaining.
 - **`POST() *Handler`** - Registers handler for POST requests
 - **`PATCH() *Handler`** - Registers handler for PATCH requests
 - **`DELETE() *Handler`** - Registers handler for DELETE requests
+- **`Use(m middleware.MiddlewareHandler) *Handler`** - Adds route-specific middleware. Returns `*Handler` for chaining.
 
 **Example**:
 ```go
 server.AddHandler("/api/users", handler).GET()
 server.AddHandler("/api/users", createHandler).POST()
+
+// With route-specific middleware
+server.AddHandler("/api/protected", handler).
+    Use(authMiddleware).
+    Use(loggingMiddleware).
+    GET()
 ```
 
 ---
@@ -423,6 +444,322 @@ func streamHandler(w *response.Writer, req *request.Request) {
 server.AddHandler("/stream", streamHandler)
 ```
 
+### Global Middleware
+
+Global middleware applies to all routes in the order they are registered. A middleware function takes the next handler in the chain and returns a wrapped handler.
+
+```go
+import (
+    "fmt"
+    "github.com/noelw19/tcptohttp/internal/middleware.go"
+    "github.com/noelw19/tcptohttp/internal/request"
+    "github.com/noelw19/tcptohttp/internal/response"
+    "github.com/noelw19/tcptohttp/internal/server"
+)
+
+func main() {
+    srv := server.Serve(8080)
+    
+    // Add global middleware - executes for ALL routes
+    // The function signature matches middleware.MiddlewareHandler:
+    // func(next MiddlewareFunc) MiddlewareFunc
+    srv.Use(func(next middleware.MiddlewareFunc) middleware.MiddlewareFunc {
+        return func(w *response.Writer, req *request.Request) {
+            fmt.Println("Global middleware 1 - before")
+            next(w, req)  // Continue to next middleware/handler
+            fmt.Println("Global middleware 1 - after")
+        }
+    })
+    
+    srv.Use(func(next middleware.MiddlewareFunc) middleware.MiddlewareFunc {
+        return func(w *response.Writer, req *request.Request) {
+            fmt.Println("Global middleware 2 - before")
+            next(w, req)
+            fmt.Println("Global middleware 2 - after")
+        }
+    })
+    
+    // Routes will execute: Global 1 → Global 2 → Handler
+    srv.AddHandler("/", homeHandler).GET()
+    srv.Listen()
+}
+```
+
+**Execution order for a request:**
+1. Global middleware 1 (before)
+2. Global middleware 2 (before)
+3. Route handler
+4. Global middleware 2 (after)
+5. Global middleware 1 (after)
+
+### Route-Specific Middleware
+
+Route-specific middleware applies only to specific routes and executes after global middleware.
+
+```go
+func main() {
+    srv := server.Serve(8080)
+    
+    // Global middleware
+    srv.Use(loggingMiddleware)
+    
+    // Public route - only global middleware
+    srv.AddHandler("/public", publicHandler).GET()
+    
+    // Protected route - global + route-specific middleware
+    srv.AddHandler("/api/users", userHandler).
+        Use(authMiddleware).      // Route-specific: authentication
+        Use(rateLimitMiddleware). // Route-specific: rate limiting
+        GET()
+    
+    // Another protected route with different middleware
+    srv.AddHandler("/api/admin", adminHandler).
+        Use(authMiddleware).
+        Use(adminOnlyMiddleware). // Different middleware for admin
+        GET()
+}
+```
+
+**Execution order for `/api/users`:**
+1. Global logging middleware (before)
+2. Route auth middleware (before)
+3. Route rate limit middleware (before)
+4. Handler
+5. Route rate limit middleware (after)
+6. Route auth middleware (after)
+7. Global logging middleware (after)
+
+### Common Middleware Patterns
+
+#### Logging Middleware
+
+```go
+func loggingMiddleware(next middleware.MiddlewareFunc) middleware.MiddlewareFunc {
+    return func(w *response.Writer, req *request.Request) {
+        start := time.Now()
+        method := req.RequestLine.Method
+        path := req.RequestLine.RequestTarget
+        
+        fmt.Printf("[%s] %s %s - Started\n", time.Now().Format(time.RFC3339), method, path)
+        
+        next(w, req)  // Execute handler
+        
+        duration := time.Since(start)
+        fmt.Printf("[%s] %s %s - Completed in %v\n", 
+            time.Now().Format(time.RFC3339), method, path, duration)
+    }
+}
+
+// Usage
+srv.Use(loggingMiddleware)
+```
+
+#### Authentication Middleware
+
+```go
+func authMiddleware(next middleware.MiddlewareFunc) middleware.MiddlewareFunc {
+    return func(w *response.Writer, req *request.Request) {
+        token := req.Headers.Get("authorization")
+        
+        if token == "" || !isValidToken(token) {
+            body := []byte(`{"error": "Unauthorized"}`)
+            headers := response.GetDefaultHeaders(len(body))
+            headers.Replace("content-type", "application/json")
+            w.Respond(401, headers, body)
+            return  // Don't call next() - short-circuit the request
+        }
+        
+        // Token is valid, continue to handler
+        next(w, req)
+    }
+}
+
+// Usage - only on protected routes
+srv.AddHandler("/api/protected", protectedHandler).
+    Use(authMiddleware).
+    GET()
+```
+
+#### CORS Middleware
+
+```go
+func corsMiddleware(next middleware.MiddlewareFunc) middleware.MiddlewareFunc {
+    return func(w *response.Writer, req *request.Request) {
+        // Handle preflight requests
+        if req.RequestLine.Method == "OPTIONS" {
+            headers := response.GetDefaultHeaders(0)
+            headers.Set("Access-Control-Allow-Origin", "*")
+            headers.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE")
+            headers.Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+            w.Respond(200, headers, []byte{})
+            return
+        }
+        
+        // Execute handler
+        next(w, req)
+        
+        // Add CORS headers to response (if response writer supports modification)
+        // Note: This is a simplified example
+    }
+}
+
+// Usage
+srv.Use(corsMiddleware)
+```
+
+#### Request ID Middleware
+
+```go
+import (
+    "crypto/rand"
+    "encoding/hex"
+)
+
+func requestIDMiddleware(next middleware.MiddlewareFunc) middleware.MiddlewareFunc {
+    return func(w *response.Writer, req *request.Request) {
+        // Generate unique request ID
+        id := make([]byte, 16)
+        rand.Read(id)
+        requestID := hex.EncodeToString(id)
+        
+        // Store in request context (you'd need to add a context field to Request)
+        // For now, we can add it as a header
+        req.Headers.Set("X-Request-ID", requestID)
+        
+        // Add to response headers
+        next(w, req)
+        
+        // Response headers would be set in the handler or another middleware
+    }
+}
+
+// Usage
+srv.Use(requestIDMiddleware)
+```
+
+#### Rate Limiting Middleware
+
+```go
+import (
+    "sync"
+    "time"
+)
+
+type rateLimiter struct {
+    requests map[string][]time.Time
+    mu       sync.Mutex
+    limit    int
+    window   time.Duration
+}
+
+func newRateLimiter(limit int, window time.Duration) *rateLimiter {
+    return &rateLimiter{
+        requests: make(map[string][]time.Time),
+        limit:    limit,
+        window:   window,
+    }
+}
+
+func (rl *rateLimiter) middleware(next middleware.MiddlewareFunc) middleware.MiddlewareFunc {
+    return func(w *response.Writer, req *request.Request) {
+        // Get client IP (simplified - you'd extract from connection)
+        clientIP := req.Headers.Get("X-Forwarded-For")
+        if clientIP == "" {
+            clientIP = "unknown"
+        }
+        
+        rl.mu.Lock()
+        now := time.Now()
+        
+        // Clean old requests outside the window
+        if times, ok := rl.requests[clientIP]; ok {
+            valid := []time.Time{}
+            for _, t := range times {
+                if now.Sub(t) < rl.window {
+                    valid = append(valid, t)
+                }
+            }
+            rl.requests[clientIP] = valid
+        }
+        
+        // Check limit
+        if len(rl.requests[clientIP]) >= rl.limit {
+            rl.mu.Unlock()
+            body := []byte(`{"error": "Rate limit exceeded"}`)
+            headers := response.GetDefaultHeaders(len(body))
+            headers.Replace("content-type", "application/json")
+            w.Respond(429, headers, body)
+            return
+        }
+        
+        // Add current request
+        rl.requests[clientIP] = append(rl.requests[clientIP], now)
+        rl.mu.Unlock()
+        
+        next(w, req)
+    }
+}
+
+// Usage
+limiter := newRateLimiter(100, time.Minute) // 100 requests per minute
+srv.AddHandler("/api/endpoint", handler).
+    Use(limiter.middleware).
+    GET()
+```
+
+### Combining Global and Route-Specific Middleware
+
+```go
+func main() {
+    srv := server.Serve(8080)
+    
+    // Global middleware - applies to all routes
+    srv.Use(loggingMiddleware)
+    srv.Use(requestIDMiddleware)
+    
+    // Public routes - only global middleware
+    srv.AddHandler("/", homeHandler).GET()
+    srv.AddHandler("/about", aboutHandler).GET()
+    
+    // Protected routes - global + authentication
+    srv.AddHandler("/api/users", getUserHandler).
+        Use(authMiddleware).
+        GET()
+    
+    // Admin routes - global + auth + admin check
+    srv.AddHandler("/api/admin", adminHandler).
+        Use(authMiddleware).
+        Use(adminOnlyMiddleware).
+        GET()
+    
+    // Rate-limited API - global + rate limiting
+    srv.AddHandler("/api/data", dataHandler).
+        Use(rateLimitMiddleware).
+        GET()
+    
+    srv.Listen()
+}
+```
+
+**Execution flow for `/api/admin`:**
+1. Request ID middleware (global)
+2. Logging middleware (global)
+3. Auth middleware (route-specific)
+4. Admin-only middleware (route-specific)
+5. Admin handler
+6. Admin-only middleware (after)
+7. Auth middleware (after)
+8. Logging middleware (after)
+9. Request ID middleware (after)
+
+### Middleware Best Practices
+
+1. **Always call `next()`** unless you're intentionally short-circuiting the request
+2. **Order matters**: Middleware executes in registration order
+3. **Global vs Route-specific**: Use global for cross-cutting concerns (logging, CORS), route-specific for conditional logic (auth, rate limiting)
+4. **Error handling**: If middleware fails, return an error response and don't call `next()`
+5. **Performance**: Keep middleware lightweight; expensive operations should be async or cached
+
 ---
 
 ## Improvement Tips
@@ -434,9 +771,11 @@ Here are some suggestions to enhance this HTTP server package:
    - Currently, the server closes connections after each request
    - Implement connection pooling and reuse for better performance
 
-### 2. **Middleware Support**
-   - Add middleware chain support (logging, authentication, CORS, etc.)
-   - Example: `server.Use(loggingMiddleware, authMiddleware)`
+### 2. **Middleware Enhancements**
+   - ✅ Basic middleware support is implemented
+   - Consider adding middleware groups/prefixes
+   - Consider adding conditional middleware execution
+   - Consider adding middleware context/state passing
 
 ### 3. **Request Timeout Handling**
    - Add configurable read/write timeouts

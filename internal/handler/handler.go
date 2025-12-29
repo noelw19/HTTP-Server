@@ -1,6 +1,9 @@
 package handler
 
 import (
+	"slices"
+
+	"github.com/noelw19/tcptohttp/internal/middleware.go"
 	"github.com/noelw19/tcptohttp/internal/request"
 	"github.com/noelw19/tcptohttp/internal/response"
 )
@@ -25,6 +28,7 @@ type Handler struct {
 	AllowedMethods []AllowedMethod
 	Vars           Vars
 	Params         Params
+	middlewares    []middleware.MiddlewareHandler
 }
 
 func NewHandler(route string, hf HandlerFunc) Handler {
@@ -35,9 +39,27 @@ func NewHandler(route string, hf HandlerFunc) Handler {
 		AllowedMethods: []AllowedMethod{},
 		Vars:           Vars{},
 		Params:         Params{},
+		middlewares:    []middleware.MiddlewareHandler{},
 	}
 
 	return handler
+}
+
+func (h *Handler) ExecuteMiddlewares(w *response.Writer, r *request.Request, final middleware.MiddlewareFunc) middleware.MiddlewareFunc {
+	middlewares := slices.Clone(h.middlewares)
+	slices.Reverse(middlewares)
+	finalHandler := middleware.MiddlewareFunc(final)
+
+	for _, m := range middlewares {
+		finalHandler = m(finalHandler)
+	}
+
+	return finalHandler
+}
+
+func (h *Handler) Use(m middleware.MiddlewareHandler) *Handler {
+	h.middlewares = append(h.middlewares, m)
+	return h
 }
 
 func (h *Handler) GET() *Handler {
